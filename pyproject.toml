@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wptomd"
+version = "0.1.0"
+description = "Conversor de WordPress HTML a Markdown limpio"
+requires-python = ">=3.12"
+dependencies = [
+    "beautifulsoup4",
+    "lxml",
+    "markdownify",
+    "typer",
+    "rich",
+    "PyYAML",
+]
+
+[project.scripts]
+wptomd = "wptomd.cli:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
