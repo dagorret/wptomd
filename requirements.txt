@@ -1,6 +1,7 @@
 beautifulsoup4
 lxml
 markdownify
+httpx
 typer
 rich
 PyYAML

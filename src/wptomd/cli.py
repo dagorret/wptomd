@@ -1,17 +1,46 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 import typer
+import yaml
 from rich.console import Console
 
-from .converter import convert_html_file
+from .converter import convert_html, convert_html_file, slugify
+from .fetcher import FetchError, fetch_html
 
 app = typer.Typer(
     help="Convierte HTML exportado desde WordPress en Markdown limpio."
 )
 
 console = Console()
+
+
+def slug_from_url(url: str) -> str | None:
+    """Obtiene un slug seguro del último segmento de una URL sin parámetros."""
+    parsed = urlsplit(url)
+
+    if parsed.query:
+        return None
+
+    candidate = unquote(parsed.path.rstrip("/").rsplit("/", 1)[-1])
+
+    if not candidate or candidate.lower() in {
+        "index.htm",
+        "index.html",
+        "index.php",
+    }:
+        return None
+
+    return slugify(candidate)
+
+
+def frontmatter_slug(markdown: str) -> str:
+    """Lee el slug generado por el conversor para elegir el destino."""
+    _, yaml_source, _ = markdown.split("---", 2)
+    metadata = yaml.safe_load(yaml_source)
+    return str(metadata["slug"])
 
 
 @app.command()
@@ -43,6 +72,47 @@ def convert(
     console.print(
         f"[bold green]Convertido:[/bold green] "
         f"{source} -> {destination}"
+    )
+
+
+@app.command("convert-url")
+def convert_url(
+    url: str = typer.Argument(
+        ...,
+        help="URL pública del artículo de WordPress.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Archivo Markdown de salida.",
+    ),
+) -> None:
+    """Descarga y convierte un artículo de WordPress."""
+    try:
+        html_source = fetch_html(url)
+        url_slug = slug_from_url(url)
+        markdown = convert_html(
+            html_source,
+            source_name=url,
+            slug=url_slug,
+            source_url=url,
+        )
+        destination = output or (
+            Path("output") / f"{frontmatter_slug(markdown)}.md"
+        )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(markdown, encoding="utf-8")
+    except FetchError as error:
+        console.print(f"[bold red]Error:[/bold red] {error}")
+        raise typer.Exit(code=1) from error
+    except Exception as error:
+        console.print(f"[bold red]Error:[/bold red] {error}")
+        raise typer.Exit(code=1) from error
+
+    console.print(
+        f"[bold green]Convertido:[/bold green] "
+        f"{url} -> {destination}"
     )
 
 

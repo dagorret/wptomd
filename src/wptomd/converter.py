@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import html
 import re
+import unicodedata
 from pathlib import Path
 
 import yaml
@@ -187,7 +188,11 @@ def remove_wordpress_attributes(content: Tag) -> None:
                 del tag.attrs[attribute]
 
 
-def extract_title(soup: BeautifulSoup, content: Tag, source: Path) -> str:
+def extract_title(
+    soup: BeautifulSoup,
+    content: Tag,
+    source_name: str,
+) -> str:
     h1 = content.find("h1")
 
     if h1:
@@ -204,7 +209,16 @@ def extract_title(soup: BeautifulSoup, content: Tag, source: Path) -> str:
         if title:
             return title
 
-    return source.stem.replace("-", " ").strip().title()
+    fallback = Path(source_name).stem.replace("-", " ").strip()
+    return fallback.title() or "Artículo"
+
+
+def slugify(value: str) -> str:
+    """Crea un slug ASCII seguro para nombres de archivo."""
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_value = normalized.encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_value.lower()).strip("-")
+    return slug or "articulo"
 
 
 def clean_markdown(markdown: str) -> str:
@@ -229,13 +243,23 @@ def clean_markdown(markdown: str) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
-def build_frontmatter(title: str, source: Path) -> str:
+def build_frontmatter(
+    title: str,
+    *,
+    slug: str,
+    source_name: str,
+    source_url: str | None = None,
+) -> str:
     metadata = {
         "title": title,
-        "slug": source.stem,
+        "slug": slug,
         "status": "published",
-        "legacy_source": source.name,
     }
+
+    if source_url is not None:
+        metadata["legacy_url"] = source_url
+    else:
+        metadata["legacy_source"] = source_name
 
     yaml_text = yaml.safe_dump(
         metadata,
@@ -246,12 +270,19 @@ def build_frontmatter(title: str, source: Path) -> str:
     return f"---\n{yaml_text}\n---\n\n"
 
 
-def convert_html_file(source: Path, destination: Path) -> None:
-    html_source = source.read_text(encoding="utf-8")
+def convert_html(
+    html_source: str,
+    *,
+    source_name: str,
+    slug: str | None = None,
+    source_url: str | None = None,
+) -> str:
+    """Convierte texto HTML en un documento Markdown completo."""
     soup = BeautifulSoup(html_source, "lxml")
 
     content = extract_content(soup)
-    title = extract_title(soup, content, source)
+    title = extract_title(soup, content, source_name)
+    resolved_slug = slug or slugify(title)
 
     convert_quicklatex(content)
     remove_quicklatex_wrappers(content)
@@ -275,7 +306,21 @@ def convert_html_file(source: Path, destination: Path) -> None:
     if lines and lines[0].strip() == f"# {title}":
         markdown = "".join(lines[1:]).lstrip()
 
-    result = build_frontmatter(title, source) + markdown
+    return build_frontmatter(
+        title,
+        slug=resolved_slug,
+        source_name=source_name,
+        source_url=source_url,
+    ) + markdown
+
+
+def convert_html_file(source: Path, destination: Path) -> None:
+    html_source = source.read_text(encoding="utf-8")
+    result = convert_html(
+        html_source,
+        source_name=source.name,
+        slug=source.stem,
+    )
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(result, encoding="utf-8")

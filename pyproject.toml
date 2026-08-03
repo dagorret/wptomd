@@ -11,9 +11,15 @@ dependencies = [
     "beautifulsoup4",
     "lxml",
     "markdownify",
+    "httpx",
     "typer",
     "rich",
     "PyYAML",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
 ]
 
 [project.scripts]
