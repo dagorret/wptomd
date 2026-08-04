@@ -21,8 +21,8 @@ class UserError(Exception):
 
 
 def print_error(message: str) -> None:
-    console.print("ERROR", style="bold red")
-    console.print(message, markup=False)
+    typer.echo("ERROR")
+    typer.echo(message)
 
 
 def _missing_file_error(path: Path) -> UserError:

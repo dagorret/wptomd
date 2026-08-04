@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, Comment, NavigableString, Tag
 from markdownify import markdownify as html_to_markdown
 
 
@@ -16,6 +16,193 @@ class ConvertedDocument:
     title: str
     slug: str
     markdown: str
+
+
+QUICKLATEX_DISPLAY_CLASSES = {
+    "ql-center-displayed-equation",
+    "ql-left-displayed-equation",
+    "ql-right-displayed-equation",
+    "ql-img-displayed-equation",
+}
+
+
+def _is_quicklatex_image(image: Tag) -> bool:
+    classes = set(image.get("class", []))
+    source = image.get("src", "")
+    return (
+        "quicklatex" in source
+        or "ql-img-inline-formula" in classes
+        or "ql-img-displayed-equation" in classes
+    )
+
+
+def _quicklatex_display_wrapper(image: Tag, content: Tag) -> Tag | None:
+    current: Tag | None = image
+
+    while isinstance(current, Tag) and current is not content:
+        classes = set(current.get("class", []))
+        if classes & QUICKLATEX_DISPLAY_CLASSES:
+            return current
+        current = current.parent if isinstance(current.parent, Tag) else None
+
+    return None
+
+
+def _code_language(element: Tag) -> str:
+    code = element.find("code")
+    tags = [element]
+    if isinstance(code, Tag):
+        tags.append(code)
+
+    for tag in tags:
+        for class_name in tag.get("class", []):
+            match = re.fullmatch(r"(?:language|lang)-([a-z0-9_+-]+)", class_name)
+            if match:
+                return match.group(1)
+
+        for attribute in ("data-language", "data-lang"):
+            value = tag.get(attribute)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+    sibling = element.previous_sibling
+    checked = 0
+    while sibling is not None and checked < 3:
+        if isinstance(sibling, Comment):
+            match = re.search(
+                r'"language"\s*:\s*"([a-zA-Z0-9_+-]+)"',
+                str(sibling),
+            )
+            if match:
+                return match.group(1).lower()
+        sibling = sibling.previous_sibling
+        checked += 1
+
+    return ""
+
+
+def _serialize_code_node(node: object) -> str:
+    if isinstance(node, NavigableString):
+        return _replace_literal_quicklatex_images(str(node))
+
+    if not isinstance(node, Tag):
+        return str(node)
+
+    if node.name == "img" and _is_quicklatex_image(node):
+        return _code_quicklatex_value(str(node.get("alt", "")))
+
+    if node.name == "span" and any(
+        class_name.startswith("hljs") for class_name in node.get("class", [])
+    ):
+        return "".join(_serialize_code_node(child) for child in node.contents)
+
+    if not node.contents:
+        return str(node)
+
+    if node.name in {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "source",
+        "track",
+        "wbr",
+    }:
+        return str(node)
+
+    opening_tag = str(node).split(">", 1)[0] + ">"
+    inner = "".join(_serialize_code_node(child) for child in node.contents)
+    return f"{opening_tag}{inner}</{node.name}>"
+
+
+def _code_quicklatex_value(value: str) -> str:
+    value = html.unescape(value)
+    if value.startswith("$"):
+        return value
+
+    if _is_code_variable(value):
+        return f"${value}"
+
+    return value
+
+
+def _is_code_variable(value: str) -> bool:
+    return bool(
+        re.fullmatch(
+            r"(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})",
+            value,
+        )
+    )
+
+
+def _replace_literal_quicklatex_images(value: str) -> str:
+    image_with_end = re.compile(
+        r'<img\b[^<]*?alt\s*=\s*["\'](?P<alt>.*?)["\'][^<]*?/>',
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    def replace_closed(match: re.Match[str]) -> str:
+        raw_alt = html.unescape(match.group("alt"))
+        if _is_code_variable(raw_alt):
+            return "$" if not raw_alt.startswith("$") else raw_alt
+        return raw_alt
+
+    value = image_with_end.sub(replace_closed, value)
+
+    image_without_end = re.compile(
+        r'<img\b[^<]*?alt\s*=\s*["\'](?P<alt>.*?)["\']',
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    def replace_open(match: re.Match[str]) -> str:
+        return f'{_code_quicklatex_value(match.group("alt"))}"'
+
+    return image_without_end.sub(replace_open, value)
+
+
+def _serialize_code_block(element: Tag) -> str:
+    code = element.find("code")
+    target = code if isinstance(code, Tag) else element
+
+    flattened = target.get_text("", strip=False)
+    if "quicklatex" in flattened or "ql-img-" in flattened:
+        return _replace_literal_quicklatex_images(flattened)
+
+    return "".join(_serialize_code_node(child) for child in target.contents)
+
+
+def protect_code_blocks(content: Tag) -> dict[str, str]:
+    """Reemplaza bloques de código por marcadores antes de normalizar el HTML."""
+    blocks = list(content.find_all("pre"))
+    blocks.extend(
+        block
+        for block in content.select(".wp-block-code")
+        if block.name != "pre" and block.find("pre") is None
+    )
+
+    protected: dict[str, str] = {}
+
+    for index, block in enumerate(blocks):
+        marker = f"wptomd-code-block-{index}-placeholder"
+        language = _code_language(block)
+        code = _serialize_code_block(block).rstrip("\n")
+        fence = f"```{language}\n{code}\n```"
+        protected[marker] = fence
+        block.replace_with(marker)
+
+    return protected
+
+
+def restore_code_blocks(markdown: str, protected: dict[str, str]) -> str:
+    for marker, fence in protected.items():
+        markdown = markdown.replace(marker, fence)
+    return markdown
 
 
 def extract_content(soup: BeautifulSoup) -> Tag:
@@ -79,44 +266,27 @@ def convert_quicklatex(content: Tag) -> None:
     images = list(content.find_all("img"))
 
     for image in images:
-        classes = set(image.get("class", []))
-        parent_classes = (
-            set(image.parent.get("class", []))
-            if isinstance(image.parent, Tag)
-            else set()
-        )
-        source = image.get("src", "")
-        alt = image.get("alt", "")
-
-        is_quicklatex = (
-            "quicklatex" in source
-            or "ql-img-inline-formula" in classes
-            or "ql-img-displayed-equation" in classes
-        )
-
-        if not is_quicklatex or not alt:
+        if not _is_quicklatex_image(image):
             continue
 
+        alt = image.get("alt", "")
         latex = normalize_latex_source(alt)
-
+        wrapper = _quicklatex_display_wrapper(image, content)
         is_display = (
-            "ql-img-displayed-equation" in classes
-            or bool(
-                parent_classes
-                & {
-                    "ql-center-displayed-equation",
-                    "ql-left-displayed-equation",
-                    "ql-right-displayed-equation",
-                }
-            )
+            "ql-img-displayed-equation" in set(image.get("class", []))
+            or wrapper is not None
         )
 
-        if is_display:
+        if not alt:
+            image.decompose()
+        elif is_display:
             replacement = f"\n\n$$\n{latex}\n$$\n\n"
+            if wrapper is not None:
+                wrapper.replace_with(replacement)
+            else:
+                image.replace_with(replacement)
         else:
-            replacement = f"${latex}$"
-
-        image.replace_with(replacement)
+            image.replace_with(f"${latex}$")
 
 
 def remove_quicklatex_wrappers(content: Tag) -> None:
@@ -131,12 +301,7 @@ def remove_quicklatex_wrappers(content: Tag) -> None:
 
     for selector in selectors:
         for wrapper in list(content.select(selector)):
-            text = wrapper.get_text("", strip=False).strip()
-
-            if text:
-                wrapper.replace_with(text)
-            else:
-                wrapper.decompose()
+            wrapper.unwrap()
 
 
 def remove_wordpress_residue(content: Tag) -> None:
@@ -292,6 +457,7 @@ def convert_html(
     title = extract_title(soup, content, source_name)
     resolved_slug = slugify(slug or title)
 
+    protected_code = protect_code_blocks(content)
     convert_quicklatex(content)
     remove_quicklatex_wrappers(content)
     normalize_entities(content)
@@ -306,6 +472,7 @@ def convert_html(
         strip=("div", "span"),
     )
 
+    markdown = restore_code_blocks(markdown, protected_code)
     markdown = clean_markdown(markdown)
 
     # Evita duplicar el título del artículo dentro del cuerpo.

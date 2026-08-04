@@ -10,6 +10,9 @@ import yaml
 from wptomd.converter import ConvertedDocument, convert_html, convert_html_file
 
 
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
 class ConverterTests(unittest.TestCase):
     def convert(self, html_source: str, name: str = "entrada.html") -> str:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -126,6 +129,109 @@ class ConverterTests(unittest.TestCase):
         self.assertIn("title: Título --- edición", document.markdown)
         self.assertIn("Contenido --- permanente.", document.markdown)
         self.assertEqual(document.slug, "titulo-edicion")
+
+    def test_quicklatex_inside_code_is_literal_and_fenced(self) -> None:
+        html_source = (FIXTURES / "quicklatex-code.html").read_text(
+            encoding="utf-8"
+        )
+
+        document = convert_html(
+            html_source,
+            source_name="quicklatex-code.html",
+        )
+
+        self.assertIn(
+            '```bash\nmkdir -p $DEST\nrsync "$SOURCE" "${NOTEBOOK}"\n```',
+            document.markdown,
+        )
+        self.assertIn(
+            '```\n<div class="example">\n  <span>texto</span>\n</div>\n```',
+            document.markdown,
+        )
+        self.assertNotIn("$${DEST}$$", document.markdown)
+        self.assertNotIn("ql-img-", document.markdown)
+        self.assertNotIn("wp-content/ql-cache", document.markdown)
+
+    def test_escaped_quicklatex_image_inside_code_becomes_literal_variable(self) -> None:
+        document = convert_html(
+            """
+            <article><h1>Shell</h1>
+              <pre><code class="language-bash">mkdir -p "&lt;img
+                src="quicklatex.png" class="ql-img-inline-formula"
+                alt="DEST" /&gt;DEST"</code></pre>
+            </article>
+            """,
+            source_name="shell.html",
+        )
+
+        self.assertIn("mkdir -p \"$DEST\"", document.markdown)
+        self.assertNotIn("ql-img-", document.markdown)
+
+    def test_syntax_highlighter_wrappers_are_not_kept_in_code(self) -> None:
+        document = convert_html(
+            """
+            <article><h1>Code</h1>
+              <pre><code class="language-bash">echo
+                <span class="hljs-string">"literal"</span>
+                <span class="example">&lt;div&gt;texto&lt;/div&gt;</span></code></pre>
+            </article>
+            """,
+            source_name="code.html",
+        )
+
+        self.assertNotIn("hljs-", document.markdown)
+        self.assertIn('"literal"', document.markdown)
+        self.assertIn('<span class="example"><div>texto</div></span>', document.markdown)
+
+    def test_quicklatex_display_detects_image_and_parent_wrapper(self) -> None:
+        html_source = (FIXTURES / "quicklatex-display.html").read_text(
+            encoding="utf-8"
+        )
+
+        document = convert_html(
+            html_source,
+            source_name="quicklatex-display.html",
+        )
+
+        self.assertEqual(document.markdown.count("$$"), 4)
+        self.assertIn("$$\nx^2 + y^2\n$$", document.markdown)
+        self.assertIn("$$\na+b\n$$", document.markdown)
+        self.assertNotIn("ql-img-", document.markdown)
+        self.assertNotIn("ql-center-displayed-equation", document.markdown)
+        self.assertNotIn("<img", document.markdown)
+        self.assertNotIn("wp-content/ql-cache", document.markdown)
+
+    def test_quicklatex_display_without_wrapper_is_converted(self) -> None:
+        document = convert_html(
+            """
+            <article><h1>Math</h1>
+              <p><img class="ql-img-displayed-equation"
+                alt="\\[x^2\\]"></p>
+            </article>
+            """,
+            source_name="math.html",
+        )
+
+        self.assertIn("$$\nx^2\n$$", document.markdown)
+        self.assertNotIn("ql-img-displayed-equation", document.markdown)
+
+    def test_tables_quotes_images_and_links_remain_after_code_protection(self) -> None:
+        document = convert_html(
+            """
+            <article><h1>Contenido</h1>
+              <table><tr><th>A</th></tr><tr><td>B</td></tr></table>
+              <blockquote><p>Cita.</p></blockquote>
+              <p><a href="https://example.com">Enlace</a>
+                <img src="imagen.jpg" alt="Imagen"></p>
+            </article>
+            """,
+            source_name="contenido.html",
+        )
+
+        self.assertIn("| A |\n| --- |\n| B |", document.markdown)
+        self.assertIn("> Cita.", document.markdown)
+        self.assertIn("[Enlace](https://example.com)", document.markdown)
+        self.assertIn("![Imagen](imagen.jpg)", document.markdown)
 
 
 if __name__ == "__main__":
