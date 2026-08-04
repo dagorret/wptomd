@@ -11,6 +11,10 @@ DEFAULT_TIMEOUT = 10.0
 class FetchError(Exception):
     """Error esperado al validar o descargar una página."""
 
+    def __init__(self, message: str, *, reason: str | None = None) -> None:
+        super().__init__(message)
+        self.reason = reason or message
+
 
 def validate_url(url: str) -> None:
     try:
@@ -38,11 +42,22 @@ def fetch_html(url: str) -> str:
     except httpx.HTTPStatusError as error:
         status_code = error.response.status_code
         raise FetchError(
-            f"Error HTTP {status_code} al descargar {url}"
+            f"Error HTTP {status_code} al descargar {url}",
+            reason=(
+                f"HTTP {status_code} {error.response.reason_phrase}"
+            ),
         ) from error
     except httpx.InvalidURL as error:
         raise FetchError("La URL debe usar http o https.") from error
+    except httpx.TimeoutException as error:
+        raise FetchError(
+            f"No se pudo conectar con {url}",
+            reason="Tiempo de espera agotado.",
+        ) from error
     except httpx.RequestError as error:
-        raise FetchError(f"No se pudo conectar con {url}") from error
+        raise FetchError(
+            f"No se pudo conectar con {url}",
+            reason="No se pudo establecer la conexión.",
+        ) from error
 
     return response.text

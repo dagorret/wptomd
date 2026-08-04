@@ -3,10 +3,11 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from dataclasses import FrozenInstanceError
 
 import yaml
 
-from wptomd.converter import convert_html_file
+from wptomd.converter import ConvertedDocument, convert_html, convert_html_file
 
 
 class ConverterTests(unittest.TestCase):
@@ -97,6 +98,34 @@ class ConverterTests(unittest.TestCase):
         metadata, body = self.split_document(document)
         self.assertEqual(metadata["title"], "Título editorial")
         self.assertNotIn("# Título editorial", body)
+
+    def test_convert_html_returns_immutable_document_with_normalized_slug(self) -> None:
+        document = convert_html(
+            "<article><h1>Artículo útil</h1><p>Contenido.</p></article>",
+            source_name="entrada.html",
+            slug="Artículo útil",
+        )
+
+        self.assertIsInstance(document, ConvertedDocument)
+        self.assertEqual(document.slug, "articulo-util")
+        with self.assertRaises(FrozenInstanceError):
+            document.slug = "otro"  # type: ignore[misc]
+
+    def test_frontmatter_and_content_can_include_triple_dash(self) -> None:
+        document = convert_html(
+            """
+            <html><head><title>Título --- edición</title></head><body>
+              <article><h1>Título --- edición</h1>
+                <p>Contenido --- permanente.</p>
+              </article>
+            </body></html>
+            """,
+            source_name="entrada.html",
+        )
+
+        self.assertIn("title: Título --- edición", document.markdown)
+        self.assertIn("Contenido --- permanente.", document.markdown)
+        self.assertEqual(document.slug, "titulo-edicion")
 
 
 if __name__ == "__main__":

@@ -3,11 +3,19 @@ from __future__ import annotations
 import html
 import re
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
 from bs4 import BeautifulSoup, Tag
 from markdownify import markdownify as html_to_markdown
+
+
+@dataclass(frozen=True)
+class ConvertedDocument:
+    title: str
+    slug: str
+    markdown: str
 
 
 def extract_content(soup: BeautifulSoup) -> Tag:
@@ -276,13 +284,13 @@ def convert_html(
     source_name: str,
     slug: str | None = None,
     source_url: str | None = None,
-) -> str:
+) -> ConvertedDocument:
     """Convierte texto HTML en un documento Markdown completo."""
     soup = BeautifulSoup(html_source, "lxml")
 
     content = extract_content(soup)
     title = extract_title(soup, content, source_name)
-    resolved_slug = slug or slugify(title)
+    resolved_slug = slugify(slug or title)
 
     convert_quicklatex(content)
     remove_quicklatex_wrappers(content)
@@ -306,21 +314,35 @@ def convert_html(
     if lines and lines[0].strip() == f"# {title}":
         markdown = "".join(lines[1:]).lstrip()
 
-    return build_frontmatter(
+    document = build_frontmatter(
         title,
         slug=resolved_slug,
         source_name=source_name,
         source_url=source_url,
     ) + markdown
 
+    return ConvertedDocument(
+        title=title,
+        slug=resolved_slug,
+        markdown=document,
+    )
 
-def convert_html_file(source: Path, destination: Path) -> None:
+
+def convert_html_file(
+    source: Path,
+    destination: Path,
+    *,
+    force: bool = False,
+) -> ConvertedDocument:
     html_source = source.read_text(encoding="utf-8")
     result = convert_html(
         html_source,
         source_name=source.name,
-        slug=source.stem,
+        slug=slugify(source.stem),
     )
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    destination.write_text(result, encoding="utf-8")
+    if destination.exists() and not force:
+        raise FileExistsError(f"El archivo de salida ya existe: {destination}")
+
+    destination.write_text(result.markdown, encoding="utf-8")
+    return result
