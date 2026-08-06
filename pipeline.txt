@@ -1,0 +1,36 @@
+Pipeline completo
+A. Convertir WordPress a Markdown inicial
+
+Tu script actual:
+
+bash importar.sh sitemap.html
+
+Los .md quedan en output/.
+
+B. Descargar metadatos WordPress
+python3 fetch_metadata.py \
+    https://dagorret.com.ar \
+    --output metadata
+C. Crear Markdown definitivo
+python3 enrich.py \
+    output \
+    --metadata metadata \
+    --output markdown-ready \
+    --force
+D. Restaurar FARO normal antes de importar
+docker compose exec -T cms-php \
+    php artisan migrate:fresh --seed
+E. Insertar en FARO
+
+Si Python corre en tu máquina:
+
+python3 insert.py \
+    markdown-ready \
+    --database database/database.sqlite \
+    --site ensayos \
+    --batch-size 500
+F. Generar el sitio
+docker compose exec -T cms-php \
+    php artisan site:build ensayos --force --resource
+
+La única parte que puede necesitar ajuste es el esquema exacto de tags y post_tag. El script valida las tablas y columnas antes de insertar; si FARO usa otros nombres, fallará sin modificar datos y mostrará qué contrato no coincide.

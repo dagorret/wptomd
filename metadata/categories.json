@@ -1,0 +1,100 @@
+[
+  {
+    "id": 31,
+    "name": "Capital",
+    "slug": "capital",
+    "parent": 30,
+    "count": 7
+  },
+  {
+    "id": 417,
+    "name": "Ciencia",
+    "slug": "ciencia",
+    "parent": 0,
+    "count": 1
+  },
+  {
+    "id": 11,
+    "name": "Cultura",
+    "slug": "cultura",
+    "parent": 10,
+    "count": 10
+  },
+  {
+    "id": 358,
+    "name": "English",
+    "slug": "english",
+    "parent": 0,
+    "count": 14
+  },
+  {
+    "id": 419,
+    "name": "Filosofía",
+    "slug": "filosofia",
+    "parent": 417,
+    "count": 3
+  },
+  {
+    "id": 32,
+    "name": "Historia",
+    "slug": "historia",
+    "parent": 30,
+    "count": 11
+  },
+  {
+    "id": 22,
+    "name": "Inteligencia Artificial",
+    "slug": "ia",
+    "parent": 20,
+    "count": 7
+  },
+  {
+    "id": 418,
+    "name": "Matemáticas",
+    "slug": "matematicas",
+    "parent": 417,
+    "count": 2
+  },
+  {
+    "id": 12,
+    "name": "Ontología",
+    "slug": "ontologia",
+    "parent": 11,
+    "count": 6
+  },
+  {
+    "id": 33,
+    "name": "Política",
+    "slug": "politica",
+    "parent": 30,
+    "count": 15
+  },
+  {
+    "id": 21,
+    "name": "Sistemas",
+    "slug": "sistemas",
+    "parent": 20,
+    "count": 24
+  },
+  {
+    "id": 30,
+    "name": "Sociología",
+    "slug": "sociologia",
+    "parent": 0,
+    "count": 3
+  },
+  {
+    "id": 20,
+    "name": "Tecnología",
+    "slug": "tecnologia",
+    "parent": 0,
+    "count": 2
+  },
+  {
+    "id": 271,
+    "name": "Uncategorized",
+    "slug": "uncategorized-en",
+    "parent": 0,
+    "count": 0
+  }
+]
